@@ -9,26 +9,26 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/pkg/errors"
 )
 
 func (p *Psg) RecordSave(rd dto.Record) error {
 
-	err := p.PhoneExists(rd.Phone)
-	if err != nil {
-		return errors.Errorf("p.PhoneExists(rd.Phone)")
+	exist := p.PhoneExists(rd.Phone)
+	if exist {
+		return errors.Errorf("Phone Exists")
 	}
 
 	sqlCommand := `INSERT INTO address_book (name, last_name, middle_name, address, phone) VALUES ($1, $2, $3, $4, $5)`
-	_, err = p.conn.Exec(context.Background(), sqlCommand, rd.Name, rd.LastName, rd.MiddleName, rd.Address, rd.Phone)
+	_, err := p.conn.Exec(context.Background(), sqlCommand, rd.Name, rd.LastName, rd.MiddleName, rd.Address, rd.Phone)
 	if err != nil {
 		return errors.Errorf("p.db.Exec()")
 	}
 	return nil
 }
 
-func (p *Psg) RecordsGet(record dto.Record) (result []dto.Record, err error) {
+func (p *Psg) RecordsGet(record dto.Record) ([]dto.Record, error) {
+	result := []dto.Record{}
 
 	sqlCommand, values, err := p.SelectRecord(record)
 	if err != nil {
@@ -56,13 +56,12 @@ func (p *Psg) RecordsGet(record dto.Record) (result []dto.Record, err error) {
 	return result, nil
 }
 
-func (p *Psg) RecordUpdate(record dto.Record) (err error) {
+func (p *Psg) RecordUpdate(record dto.Record) error {
 
-	err = p.PhoneExists(record.Phone)
-	if err == nil {
+	exist := p.PhoneExists(record.Phone)
+	if !exist {
 		return errors.Errorf("Phone does not exist")
 	}
-	err = nil
 
 	fields := []string{}
 	values := []interface{}{}
@@ -92,33 +91,35 @@ func (p *Psg) RecordUpdate(record dto.Record) (err error) {
 	values = append(values, record.Phone)
 	sqlCommand := fmt.Sprintf(`UPDATE address_book SET %s WHERE phone=$%d`, strings.Join(fields, ", "), index)
 
-	_, err = p.conn.Exec(context.Background(), sqlCommand, values...)
+	_, err := p.conn.Exec(context.Background(), sqlCommand, values...)
 	if err != nil {
-		return errors.Errorf("p.db.Exec()")
+		return errors.Errorf("p.conn.Exec()")
 	}
 	return nil
 }
 
-func (p *Psg) RecordDeleteByPhone(phone string) (err error) {
+func (p *Psg) RecordDeleteByPhone(phone string) error {
 
-	err = p.PhoneExists(phone)
-	if err == nil {
-
+	exist := p.PhoneExists(phone)
+	if !exist {
 		return errors.Errorf("Phone does not exist")
 	}
 
 	sqlCommand := `DELETE FROM address_book WHERE phone=$1`
-	_, err = p.conn.Exec(context.Background(), sqlCommand, phone)
+	_, err := p.conn.Exec(context.Background(), sqlCommand, phone)
+
 	if err != nil {
-		return errors.Errorf("p.db.Exec()")
+		return errors.Errorf("p.conn.Exec()")
 	}
+
 	return nil
 }
 
-func (p *Psg) SelectRecord(r dto.Record) (res_query string, values []any, err error) {
+func (p *Psg) SelectRecord(r dto.Record) (string, []any, error) {
 	sqlFields, values, err := structToFieldsValues(r, "sql.field")
+
 	if err != nil {
-		return
+		return "", nil, err
 	}
 
 	var conds []dto.Cond
@@ -145,22 +146,30 @@ func (p *Psg) SelectRecord(r dto.Record) (res_query string, values []any, err er
 	SELECT 
 		id, name, last_name, middle_name, address, phone
 	FROM
-	    address_book;`
+	    address_book
+	WHERE
+		{{range .}} {{.Lop}} {{.Field}} = {{.PgxInd}}{{end}}
+;
+`
 	tmpl, err := template.New("").Parse(query)
+
 	if err != nil {
-		return
+		return "", nil, err
 	}
 
 	var sb strings.Builder
 	err = tmpl.Execute(&sb, conds)
 	if err != nil {
-		return
+		return "", nil, err
 	}
-	res_query = sb.String()
-	return
+	res_query := sb.String()
+	return res_query, values, nil
 }
 
-func structToFieldsValues(s any, tag string) (sqlFields []string, values []any, err error) {
+func structToFieldsValues(s any, tag string) ([]string, []any, error) {
+	sqlFields := []string{}
+	values := []any{}
+
 	rv := reflect.ValueOf(s)
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
@@ -206,23 +215,13 @@ func structToFieldsValues(s any, tag string) (sqlFields []string, values []any, 
 		values = append(values, fv.Interface())
 	}
 
-	return
+	return sqlFields, values, nil
 }
 
-func (p *Psg) PhoneExists(phone string) error {
+func (p *Psg) PhoneExists(phone string) bool {
 	sqlCommand := `SELECT phone FROM address_book WHERE phone = $1`
 	row := p.conn.QueryRow(context.Background(), sqlCommand, phone)
 	var existingPhone string
-	err := row.Scan(&existingPhone)
-	if existingPhone == phone {
-		return errors.New("phone number already in use")
-	}
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil
-		}
-		return errors.Errorf("row.Scan(&existingPhone)")
-	}
-	return errors.Errorf("phone number already in use")
-
+	row.Scan(&existingPhone)
+	return existingPhone == phone
 }

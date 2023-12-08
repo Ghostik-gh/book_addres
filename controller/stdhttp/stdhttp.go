@@ -4,10 +4,11 @@ import (
 	"HW-1/gates/psg"
 	"HW-1/models/dto"
 	"HW-1/pkg"
+	"HW-1/pkg/logger"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 
 	"net/http"
 )
@@ -15,6 +16,7 @@ import (
 type Controller struct {
 	DB  *psg.Psg
 	Srv *http.Server
+	ctx context.Context
 }
 
 type Record struct {
@@ -26,8 +28,9 @@ type Record struct {
 	Address    string `json:"address"`
 }
 
-func NewController(addr string, p *psg.Psg) *Controller {
+func NewController(ctx context.Context, addr string, p *psg.Psg) *Controller {
 	ctrl := &Controller{}
+	ctrl.ctx = ctx
 
 	mux := http.NewServeMux()
 
@@ -48,55 +51,55 @@ func NewController(addr string, p *psg.Psg) *Controller {
 func (c *Controller) RecordAdd(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodPost {
+		logger.Errorf(c.ctx, "Invalid request method")
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
-		w.WriteHeader(http.StatusPaymentRequired)
 		return
 	}
 
 	record := dto.Record{}
 	byteReq, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Println("Error reading request", nil, err.Error())
-		w.WriteHeader(http.StatusPaymentRequired)
+		logger.Errorf(c.ctx, "Error reading request", nil, err.Error())
+		http.Error(w, "Error reading request", http.StatusBadRequest)
 		return
 	}
 	err = json.Unmarshal(byteReq, &record)
 	if err != nil {
-		log.Println("Error JSON", nil, err.Error())
-		w.WriteHeader(http.StatusPaymentRequired)
+		logger.Errorf(c.ctx, "Error JSON", nil, err.Error())
+		http.Error(w, "Error JSON", http.StatusBadRequest)
 		return
 	}
 
 	if record.Name == "" || record.LastName == "" || record.Address == "" || record.Phone == "" {
 		err = errors.New("required data is missing")
-		log.Println("Required data is missing", nil, err.Error())
-		w.WriteHeader(http.StatusPaymentRequired)
+		logger.Errorf(c.ctx, "Required data is missing", nil, err.Error())
+		http.Error(w, "Required data is missing", http.StatusBadRequest)
 		return
 	}
 
 	record.Phone, err = pkg.PhoneNormalize(record.Phone)
 	if err != nil {
-		log.Println("Error: wrong Phone", nil, err.Error())
-		w.WriteHeader(http.StatusPaymentRequired)
+		logger.Errorf(c.ctx, "Error: wrong Phone", nil, err.Error())
+		http.Error(w, "Error: wrong Phone", http.StatusBadRequest)
 		return
 	}
 
 	err = c.DB.RecordSave(record)
 
 	if err != nil {
-		log.Println("Error in saving record", nil, err.Error())
-		w.WriteHeader(http.StatusPaymentRequired)
+		logger.Errorf(c.ctx, "Error in saving record", nil, err.Error())
+		http.Error(w, "Error in saving record", http.StatusInternalServerError)
 		return
 	}
 
-	log.Println("Successfully added", nil, "")
-
 	w.WriteHeader(http.StatusOK)
+	logger.Infof(c.ctx, "Successfully added", nil, "")
 }
 
 func (c *Controller) RecordsGet(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodPost {
+		logger.Errorf(c.ctx, "Invalid request method")
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
@@ -104,42 +107,48 @@ func (c *Controller) RecordsGet(w http.ResponseWriter, r *http.Request) {
 	record := dto.Record{}
 	byteReq, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Println("Error reading request", nil, err.Error())
+		logger.Errorf(c.ctx, "Error reading request", nil, err.Error())
+		http.Error(w, "Error reading request", http.StatusBadRequest)
 		return
 	}
 	err = json.Unmarshal(byteReq, &record)
 	if err != nil {
-		log.Println("Error JSON", nil, err.Error())
+		logger.Errorf(c.ctx, "Error JSON", nil, err.Error())
+		http.Error(w, "Error JSON", http.StatusBadRequest)
 		return
 	}
 
 	if record.Phone != "" {
 		record.Phone, err = pkg.PhoneNormalize(record.Phone)
 		if err != nil {
-			log.Println("Error: wrong Phone", nil, err.Error())
+			logger.Errorf(c.ctx, "Error: wrong Phone", nil, err.Error())
+			http.Error(w, "Error: wrong Phone", http.StatusBadRequest)
 			return
 		}
 	}
 
 	records, err := c.DB.RecordsGet(record)
 	if err != nil {
-		log.Println("Error in finding records", nil, err.Error())
+		logger.Errorf(c.ctx, "Error in finding records", nil, err.Error())
+		http.Error(w, "Error in finding records", http.StatusInternalServerError)
 		return
 	}
 
 	recordsJSON, err := json.Marshal(records)
 	if err != nil {
-		log.Println("Error JSON", nil, err.Error())
+		logger.Errorf(c.ctx, "Error JSON", nil, err.Error())
+		http.Error(w, "Error JSON", http.StatusInternalServerError)
 		return
 	}
 	w.Write(recordsJSON)
 	w.WriteHeader(http.StatusOK)
-	log.Println("Success", recordsJSON, "")
+	logger.Infof(c.ctx, "Success", recordsJSON, "")
 }
 
 func (c *Controller) RecordUpdate(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodPost {
+		logger.Errorf(c.ctx, "Invalid request method")
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
@@ -147,39 +156,46 @@ func (c *Controller) RecordUpdate(w http.ResponseWriter, r *http.Request) {
 	record := dto.Record{}
 	byteReq, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Println("Error reading request", nil, err.Error())
+		logger.Errorf(c.ctx, "Error reading request", nil, err.Error())
+		http.Error(w, "Error reading request", http.StatusBadRequest)
 		return
 	}
 	err = json.Unmarshal(byteReq, &record)
 	if err != nil {
-		log.Println("Error JSON", nil, err.Error())
+		logger.Errorf(c.ctx, "Error JSON", nil, err.Error())
+		http.Error(w, "Error JSON", http.StatusBadRequest)
 		return
 	}
 
 	if (record.Name == "" && record.LastName == "" && record.MiddleName == "" && record.Address == "") || record.Phone == "" {
 		err = errors.New("required data is missing")
-		log.Println("Required data is missing", nil, err.Error())
+		logger.Errorf(c.ctx, "Required data is missing", nil, err.Error())
+		http.Error(w, "Required data is missing", http.StatusBadRequest)
 		return
 	}
 
 	record.Phone, err = pkg.PhoneNormalize(record.Phone)
 	if err != nil {
-		log.Println("Error: wrong Phone", nil, err.Error())
+		logger.Errorf(c.ctx, "Error: wrong Phone", nil, err.Error())
+		http.Error(w, "Error: wrong Phone", http.StatusBadRequest)
 		return
 	}
 
 	err = c.DB.RecordUpdate(record)
 	if err != nil {
-		log.Println("Error in updating record", nil, err.Error())
+		logger.Errorf(c.ctx, "Error in updating record", nil, err.Error())
+		http.Error(w, "Error in updating record", http.StatusInternalServerError)
 		return
 	}
-	log.Println("Success", nil, "")
 	w.WriteHeader(http.StatusOK)
+	logger.Infof(c.ctx, "Success", nil, "")
 }
 
 func (c *Controller) RecordDeleteByPhone(w http.ResponseWriter, r *http.Request) {
 
+	
 	if r.Method != http.MethodPost {
+		logger.Errorf(c.ctx, "Invalid request method")
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
@@ -187,32 +203,37 @@ func (c *Controller) RecordDeleteByPhone(w http.ResponseWriter, r *http.Request)
 	record := dto.Record{}
 	byteReq, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Println("Error reading request", nil, err.Error())
+		logger.Errorf(c.ctx, "Error reading request", nil, err.Error())
+		http.Error(w, "Error reading request", http.StatusBadRequest)
 		return
 	}
 	err = json.Unmarshal(byteReq, &record)
 	if err != nil {
-		log.Println("Error JSON", nil, err.Error())
+		logger.Errorf(c.ctx, "Error JSON", nil, err.Error())
+		http.Error(w, "Error JSON", http.StatusBadRequest)
 		return
 	}
 
 	if record.Phone == "" {
 		err = errors.New("phone data is missing")
-		log.Println("Phone data is missing", nil, err.Error())
+		logger.Errorf(c.ctx, "Phone data is missing", nil, err.Error())
+		http.Error(w, "Phone data is missing", http.StatusBadRequest)
 		return
 	}
 
 	record.Phone, err = pkg.PhoneNormalize(record.Phone)
 	if err != nil {
-		log.Println("Error: wrong Phone", nil, err.Error())
+		logger.Errorf(c.ctx, "Error: wrong Phone", nil, err.Error())
+		http.Error(w, "Error: wrong Phone", http.StatusBadRequest)
 		return
 	}
 
 	err = c.DB.RecordDeleteByPhone(record.Phone)
 	if err != nil {
-		log.Println("Error in deleting record", nil, err.Error())
+		logger.Errorf(c.ctx, "Error in deleting record", nil, err.Error())
+		http.Error(w, "Error in deleting record", http.StatusInternalServerError)
 		return
 	}
-	log.Println("Success", nil, "")
 	w.WriteHeader(http.StatusOK)
+	logger.Infof(c.ctx, "Success", nil, "")
 }

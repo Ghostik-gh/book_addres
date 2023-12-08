@@ -4,10 +4,13 @@ import (
 	"HW-1/controller/stdhttp"
 	"HW-1/gates/psg"
 	"HW-1/pkg"
+	"HW-1/pkg/logger"
 	"context"
 	"log"
 	"os"
 	"os/signal"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -18,6 +21,15 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	zapLogger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	logger.SetGlobal(
+		zapLogger.With(zap.String("component", "server")),
+	)
+
 	cfg := pkg.MustLoad()
 
 	database, err := psg.NewPsg(ctx, cfg)
@@ -26,9 +38,9 @@ func main() {
 	}
 	defer database.Close()
 
-	log.Println("database loaded success")
+	logger.Infof(ctx, "database loaded success")
 
-	ctrl := stdhttp.NewController(Addr, database)
+	ctrl := stdhttp.NewController(ctx, Addr, database)
 
 	go func() {
 		if err := ctrl.Srv.ListenAndServe(); err != nil {
@@ -36,7 +48,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("server started on Addr: %s\n", Addr)
+	logger.Infof(ctx, "server started on Addr: %s\n", Addr)
 
 	// Gracefull shutdown
 
@@ -46,9 +58,9 @@ func main() {
 	<-c
 
 	if err = ctrl.Srv.Shutdown(ctx); err != nil {
-		log.Fatal("wrong shutdown")
+		logger.Errorf(ctx, "wrong shutdown")
 	}
 
-	log.Println("success shutdown")
+	logger.Infof(ctx, "success shutdown")
 	os.Exit(0)
 }

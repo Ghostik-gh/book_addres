@@ -26,7 +26,11 @@ func NewPsg(ctx context.Context, cfg *pkg.Config) (*Psg, error) {
         address TEXT NOT NULL DEFAULT '',
         phone TEXT NOT NULL DEFAULT ''
     );`
-	pool.Exec(ctx, sql)
+
+	_, err = pool.Exec(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Psg{conn: pool}, nil
 }
